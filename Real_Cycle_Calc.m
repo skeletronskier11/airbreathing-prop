@@ -33,11 +33,11 @@ eta_c = 0.9 ;   % compressor
 eta_b = 0.99 ;  % combustor
 eta_t = 0.93 ;  % turbine
 eta_m = 0.99 ;  % mechanical
-eta_j = 0.99 ;
+eta_j = 0.99 ;  % nozzle
 
 % Atmospheric Conditions
 Ta = 216.8 ;    % atm temp (K)
-Pa = 0.224 ;    % atm pressure (bar)
+Pa = 0.227 ;    % atm pressure (bar)
 
 % Plane Characteristics
 Sw = 127 ;      % wing area
@@ -53,19 +53,21 @@ P0 = Pa * (1 + (gc - 1) / 2 * (M0 ^ 2)) ^ (gc / (gc - 1)) ;
 
 % -- Intake -- (0 -> 1)
 P01 = eta_i * P0 ;
-T01 = (eta_i) ^ ((gc - 1) / gc) * Ts ;
+T01 = Ts ;
 
 % -- Fan -- (1 -> 2)
 P02 = pi_f * P01 ;
-T02 = T01 + (T01 - Ts) / eta_f ;
+T02s = T01 * (pi_f ^ ((gc - 1) / gc));
+T02 = T01 + (T02s - T01) / eta_f;
 
 % -- Compressor -- (2 -> 3)
 P03 = pi_c * P02;
-T03 = T02 + (T02 - T01) / eta_c;
+T03s = T02 * (pi_c ^ ((gc - 1) / gc));
+T03 = T02 + (T03s - T02) / eta_c;
 
 % -- Combustor -- (3 -> 4)
-P04 = pi_b * P03;
-Q = cpg * (T04 - T03) * 1000 ;
+P04 = pi_b * P03 ;
+Qf = hf * 1000 ;
 
 % -- HP Turbine -- (4 -> 5)
 Wc = cpa * (T03 - T02) ;    % Work on compressor
@@ -89,20 +91,23 @@ P06 = P05 * (T6s / T05) .^ (gh / (gh - 1)) ;
 
 % -- Bypass Exhaust -- (6 -> 8)
 T8s = T02 * (Pa / P02) ^ ((gc - 1) / gc) ;
-T8 = T02 - eta_f * (T02 - T8s) ;
+T8 = T02 - eta_j * (T02 - T8s) ;
 
 V8 = sqrt(2 * cpa * 1000 * (T02 - T8)) ;
 
 % -- Core Exhaust -- (8 -> 9)
 T9s = T06 .* (Pa ./ P06) .^ ((gh - 1) / gh) ;
-T9 = T06 - eta_c * (T06 - T9s) ;
+T9 = T06 - eta_j * (T06 - T9s) ;
 
 V9 = sqrt(2 * cpg * 1000 * (T06 - T9)) ;
 
 % Thrust / Mass Flow Calculation
+a = sqrt(gc * 287 * Ta) ;
+V = M0 * a ;
+
 m_dot_c_ratio = BPR .* (1 ./ (BPR + 1)) ;
 m_dot_h_ratio = 1 ./ (BPR + 1) ;
-m_dot_a = T ./ ((m_dot_c_ratio * V8) + (m_dot_h_ratio .* V9)) ;
+m_dot_a = T ./ ((m_dot_c_ratio * V8) + (m_dot_h_ratio .* V9) - V) ;
 
 T_m_dot = T ./ m_dot_a ;
 
@@ -110,21 +115,18 @@ m_dot_h = m_dot_h_ratio .* m_dot_a ;
 m_dot_c = m_dot_c_ratio .* m_dot_a ;
 
 % TSFC
-f_actual = ((cpg * T03) - (cpa * T02)) / (eta_b * (hf - (cpg * T03))) ;
+f_actual = ((cpg * T04) - (cpa * T03)) / (eta_b * (hf - (cpg * T04))) ;
 m_dot_f = f_actual * m_dot_h ;
 
 TSFC = 3600 * m_dot_f / T ;
 
 % Efficiencies
-a = sqrt(gc * 287 * M0) ;
 
-eta_overall_t = 0.5 .* (m_dot_h .* (V9 .^ 2) + m_dot_c .* (V8 .^ 2) - m_dot_a .* (a ^ 2)) ./ (m_dot_f * Q) ;
+eta_overall_t = ((m_dot_h .* (V9 .^ 2)) + (m_dot_c .* (V8 .^ 2)) - (m_dot_a .* (V ^ 2))) ./ (2 .* m_dot_f .* Qf) ;
 
-eta_overall_p = 2 * a * (m_dot_c .* (V8 - a) + m_dot_h .* (V9 - a)) / (m_dot_h .* (V9 .^ 2) + m_dot_c .* (V8 .^ 2) - m_dot_a * (a ^ 2)) ;
+eta_overall_p = 2 * V * (m_dot_c .* (V8 - V) + m_dot_h .* (V9 - V)) / (m_dot_h .* (V9 .^ 2) + m_dot_c .* (V8 .^ 2) - m_dot_a * (V ^ 2)) ;
 
-figure;
-plot(BPR, eta_overall_t, 'LineWidth', 2);
-xlabel('Bypass Ratio (BPR)');
-ylabel('Overall Thrust Efficiency (\eta_{overall,t})');
-title('Overall Thrust Efficiency vs Bypass Ratio');
-grid on;
+eta_overall = eta_overall_t .* eta_overall_p ;
+
+%% VARIABLE FPR ANALYSIS
+
